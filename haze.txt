@@ -116,6 +116,9 @@ CONFIG = {
     AUTO_FIRE_DELAY      = 0.10,
     AUTO_FIRE_LOCK       = true,
     AUTO_FIRE_PRECISION  = false,
+    AUTO_FIRE_RIGHT      = true,
+    AUTO_FIRE_QUALQUER   = false,
+    AUTO_FIRE_HIDE_MENU  = true,
     PRECISION        = false,
     PRECISION_RANGE  = 30,
     NO_AIM_DELAY    = false,
@@ -796,6 +799,7 @@ end
 -- ===== AUTO FIRE =====
 -- ============================================================
 local lastShot = 0
+local firingRight = false
 
 local function getToolEquipada()
     local char = LP.Character
@@ -806,42 +810,96 @@ local function getToolEquipada()
     return nil
 end
 
+local function simularClique(btn)
+    -- btn: 1 = esquerdo, 2 = direito
+    local feito = false
+    if btn == 1 and type(mouse1click) == "function" then
+        feito = pcall(mouse1click)
+    elseif btn == 2 and type(mouse2click) == "function" then
+        feito = pcall(mouse2click)
+    end
+
+    if not feito then
+        pcall(function()
+            local vim = game:GetService("VirtualInputManager")
+            local vp = Camera.ViewportSize
+            local cx = math.floor(vp.X / 2)
+            local cy = math.floor(vp.Y / 2)
+            vim:SendMouseButtonEvent(cx, cy, btn - 1, true, game, 1)
+            vim:SendMouseButtonEvent(cx, cy, btn - 1, false, game, 1)
+        end)
+    end
+end
+
+local function segurarDireito(on)
+    pcall(function()
+        local vim = game:GetService("VirtualInputManager")
+        local vp = Camera.ViewportSize
+        local cx = math.floor(vp.X / 2)
+        local cy = math.floor(vp.Y / 2)
+        if on then
+            vim:SendMouseButtonEvent(cx, cy, 1, true, game, 1)
+        else
+            vim:SendMouseButtonEvent(cx, cy, 1, false, game, 1)
+        end
+    end)
+end
+
 local function disparar()
     local tool = getToolEquipada()
     if tool then
         pcall(function() tool:Activate() end)
     end
-    pcall(function()
-        local vim = game:GetService("VirtualInputManager")
-        vim:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-        vim:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-    end)
+    simularClique(1)
 end
 
 local function autoFireTick()
-    if not CONFIG.AUTO_FIRE then return end
+    if not CONFIG.AUTO_FIRE then
+        if firingRight then
+            segurarDireito(false)
+            firingRight = false
+        end
+        return
+    end
+
+    if CONFIG.AUTO_FIRE_HIDE_MENU and main.Visible then
+        if firingRight then segurarDireito(false); firingRight = false end
+        return
+    end
+
     if tick() - lastShot < CONFIG.AUTO_FIRE_DELAY then return end
 
     local temAlvo = false
     if CONFIG.AIMBOT and aimActive() then
         if CONFIG.AUTO_FIRE_LOCK then
-            temAlvo = aimLocked ~= nil
+            temAlvo = (aimLocked ~= nil)
         else
             temAlvo = true
         end
     end
-    if CONFIG.AUTO_FIRE_PRECISION and CONFIG.PRECISION then
+    if not temAlvo and CONFIG.AUTO_FIRE_PRECISION and CONFIG.PRECISION then
         temAlvo = true
+    end
+    if not temAlvo and CONFIG.AUTO_FIRE_QUALQUER then
+        local lista = collectTargets()
+        if #lista > 0 then temAlvo = true end
     end
 
     if temAlvo then
         lastShot = tick()
+        if CONFIG.AUTO_FIRE_RIGHT and not firingRight then
+            segurarDireito(true)
+            firingRight = true
+        end
         disparar()
     end
 end
 
-RunService.RenderStepped:Connect(function()
-    pcall(autoFireTick)
+task.spawn(function()
+    while gui.Parent do
+        pcall(autoFireTick)
+        task.wait(0.02)
+    end
 end)
 
 -- ============================================================
@@ -1444,6 +1502,9 @@ makeSliderCard(aim, "Predicao - Velocidade", 100, 3000, CONFIG.AIM_BULLET_SPEED,
 makeToggleCard(aim, "Auto Fire", CONFIG.AUTO_FIRE, function(v) CONFIG.AUTO_FIRE = v end)
 makeSliderCard(aim, "Auto Fire - Delay (s)", 0.03, 1.0, CONFIG.AUTO_FIRE_DELAY, 0.01, function(v) CONFIG.AUTO_FIRE_DELAY = v end, function(v) return string.format("%.2f", v) end)
 makeToggleCard(aim, "Auto Fire - so com alvo travado", CONFIG.AUTO_FIRE_LOCK, function(v) CONFIG.AUTO_FIRE_LOCK = v end)
+makeToggleCard(aim, "Auto Fire - simular botao direito", CONFIG.AUTO_FIRE_RIGHT, function(v) CONFIG.AUTO_FIRE_RIGHT = v end)
+makeToggleCard(aim, "Auto Fire - qualquer inimigo no FOV", CONFIG.AUTO_FIRE_QUALQUER, function(v) CONFIG.AUTO_FIRE_QUALQUER = v end)
+makeToggleCard(aim, "Auto Fire - pausar com menu aberto", CONFIG.AUTO_FIRE_HIDE_MENU, function(v) CONFIG.AUTO_FIRE_HIDE_MENU = v end)
 
 -- ============================================================
 -- ===== UI - Precision =====
@@ -1636,7 +1697,7 @@ new("TextLabel", {
     Size = UDim2.new(1, -20, 1, -10),
     Position = UDim2.new(0, 10, 0, 5),
     BackgroundTransparency = 1,
-    Text = "HAZE - Aim + ESP + Auto Fire\n\nAimbot com lock de alvo e predicao.\nAuto Fire dispara via Tool:Activate.\nSuavizacao baixa = natural, alta = snap.\nPredicao: aumenta se o alvo corre.",
+    Text = "HAZE - Aim + ESP + Auto Fire\n\nAimbot com lock de alvo e predicao.\nAuto Fire dispara via Tool:Activate + clique simulado.\nPausa com menu aberto pra nao bugar toggles.\nPredicao: aumenta se o alvo corre.",
     TextColor3 = T.text,
     Font = Enum.Font.Gotham,
     TextSize = 11,
