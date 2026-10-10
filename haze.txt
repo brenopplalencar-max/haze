@@ -1,5 +1,5 @@
 -- haze.lua
--- HAZE — Aim + ESP. PC + Mobile (Delta).
+-- HAZE — Aim + ESP + Auto Fire. PC + Mobile (Delta).
 -- Compat estendido para Delta antigo.
 
 print("[HAZE] iniciado")
@@ -69,7 +69,6 @@ local function isRelease(input)
         or input.UserInputType == Enum.UserInputType.Touch
 end
 
--- parentGui: cadeia de fallback larga
 local parentGui
 do
     local function tryGui(fn)
@@ -120,6 +119,10 @@ CONFIG = {
     AIM_PREDICT          = false,
     AIM_PREDICT_STRENGTH = 1.0,
     AIM_BULLET_SPEED     = 800,
+    AUTO_FIRE            = false,
+    AUTO_FIRE_DELAY      = 0.10,
+    AUTO_FIRE_SÓ_LOCK    = true,
+    AUTO_FIRE_PRECISION  = false,
     PRECISION        = false,
     PRECISION_RANGE  = 30,
     NO_AIM_DELAY    = false,
@@ -797,6 +800,59 @@ if not bindOk then
 end
 
 -- ============================================================
+-- ===== AUTO FIRE =====
+-- ============================================================
+local lastShot = 0
+
+local function getToolEquipada()
+    local char = LP.Character
+    if not char then return nil end
+    for _, c in ipairs(char:GetChildren()) do
+        if c:IsA("Tool") then return c end
+    end
+    return nil
+end
+
+local function disparar()
+    local tool = getToolEquipada()
+    if tool then
+        pcall(function() tool:Activate() end)
+    end
+    -- fallback clique do mouse (PC)
+    pcall(function()
+        local vim = game:GetService("VirtualInputManager")
+        vim:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+        vim:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+    end)
+end
+
+local function autoFireTick()
+    if not CONFIG.AUTO_FIRE then return end
+    if tick() - lastShot < CONFIG.AUTO_FIRE_DELAY then return end
+
+    local temAlvo = false
+    if CONFIG.AIMBOT and aimActive() then
+        if CONFIG.AUTO_FIRE_SÓ_LOCK then
+            temAlvo = aimLocked ~= nil
+        else
+            temAlvo = true
+        end
+    end
+    if CONFIG.AUTO_FIRE_PRECISION and CONFIG.PRECISION then
+        temAlvo = true
+    end
+
+    if temAlvo then
+        lastShot = tick()
+        disparar()
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    pcall(autoFireTick)
+end)
+
+-- ============================================================
 -- ===== FOV CIRCLES =====
 -- ============================================================
 local fovCircle = new("Frame", {
@@ -1393,12 +1449,18 @@ makeToggleCard(aim, "Predição de movimento", CONFIG.AIM_PREDICT, function(v) C
 makeSliderCard(aim, "Predição - Força", 0.1, 3.0, CONFIG.AIM_PREDICT_STRENGTH, 0.1, function(v) CONFIG.AIM_PREDICT_STRENGTH = v end, function(v) return string.format("%.2f", v) end)
 makeSliderCard(aim, "Predição - Velocidade", 100, 3000, CONFIG.AIM_BULLET_SPEED, 50, function(v) CONFIG.AIM_BULLET_SPEED = v end)
 
+-- Auto Fire (Aim)
+makeToggleCard(aim, "Auto Fire", CONFIG.AUTO_FIRE, function(v) CONFIG.AUTO_FIRE = v end)
+makeSliderCard(aim, "Auto Fire - Delay (s)", 0.03, 1.0, CONFIG.AUTO_FIRE_DELAY, 0.01, function(v) CONFIG.AUTO_FIRE_DELAY = v end, function(v) return string.format("%.2f", v) end)
+makeToggleCard(aim, "Auto Fire - só com alvo travado", CONFIG.AUTO_FIRE_SÓ_LOCK, function(v) CONFIG.AUTO_FIRE_SÓ_LOCK = v end)
+
 -- ============================================================
 -- ===== UI - Precision =====
 -- ============================================================
 local prec = pages["Precision"]
 makeToggleCard(prec, "Precision (mira fixa curta)", CONFIG.PRECISION, function(v) CONFIG.PRECISION = v end)
 makeSliderCard(prec, "Raio do Precision", 5, 100, CONFIG.PRECISION_RANGE, 5, function(v) CONFIG.PRECISION_RANGE = v end)
+makeToggleCard(prec, "Auto Fire no Precision", CONFIG.AUTO_FIRE_PRECISION, function(v) CONFIG.AUTO_FIRE_PRECISION = v end)
 
 -- ============================================================
 -- ===== UI - Armas =====
@@ -1577,13 +1639,13 @@ refreshStats()
 -- ===== UI - Info =====
 -- ============================================================
 local info = pages["Info"]
-local infoCard = makeCard(info, 140)
+local infoCard = makeCard(info, 160)
 new("TextLabel", {
     Parent = infoCard,
     Size = UDim2.new(1, -20, 1, -10),
     Position = UDim2.new(0, 10, 0, 5),
     BackgroundTransparency = 1,
-    Text = "HAZE — Aim + ESP\n\nAimbot com lock de alvo e predição.\nSuavização baixa = natural, alta = snap.\nPredição: aumenta se o alvo corre.\nVelocidade do tiro: 800 = hitscan.",
+    Text = "HAZE — Aim + ESP + Auto Fire\n\nAimbot com lock de alvo e predição.\nAuto Fire dispara via Tool:Activate (funciona em PC e mobile).\nSuavização baixa = natural, alta = snap.\nPredição: aumenta se o alvo corre.",
     TextColor3 = T.text,
     Font = Enum.Font.Gotham,
     TextSize = 11,
